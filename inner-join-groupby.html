@@ -1,0 +1,1067 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Join &rarr; Group &rarr; Sort</title>
+<meta name="description" content="Step-through animation of an INNER JOIN followed by GROUP BY, COUNT, AVG, and ORDER BY: an unmatched row is excluded, matched rows regroup by borough, per-group stats count up, and a final ranked result table appears.">
+<style>
+  :root{
+    color-scheme: light;
+    --surface-1:#fcfcfb;
+    --page:#f9f9f7;
+    --text-primary:#0b0b0b;
+    --text-secondary:#52514e;
+    --muted:#898781;
+    --grid:#e1e0d9;
+    --border:rgba(11,11,11,.10);
+    --focus:#4a3aa7;
+    --focus-soft: color-mix(in srgb, var(--focus) 12%, var(--surface-1));
+    --match-1:#2a78d6;
+    --match-2:#eb6834;
+    --match-3:#1baf7a;
+    --match-4:#eda100;
+    --match-5:#8b5fbf;
+    --shadow: 0 1px 2px rgba(11,11,11,.06), 0 8px 24px rgba(11,11,11,.06);
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      color-scheme: dark;
+      --surface-1:#1a1a19;
+      --page:#0d0d0d;
+      --text-primary:#ffffff;
+      --text-secondary:#c3c2b7;
+      --muted:#898781;
+      --grid:#2c2c2a;
+      --border:rgba(255,255,255,.10);
+      --focus:#9085e9;
+      --focus-soft: color-mix(in srgb, var(--focus) 18%, var(--surface-1));
+      --match-1:#3987e5;
+      --match-2:#d95926;
+      --match-3:#199e70;
+      --match-4:#c98500;
+      --match-5:#a480e0;
+      --shadow: 0 1px 2px rgba(0,0,0,.3), 0 8px 24px rgba(0,0,0,.35);
+    }
+  }
+  :root[data-theme="dark"]{
+    color-scheme: dark;
+    --surface-1:#1a1a19;
+    --page:#0d0d0d;
+    --text-primary:#ffffff;
+    --text-secondary:#c3c2b7;
+    --muted:#898781;
+    --grid:#2c2c2a;
+    --border:rgba(255,255,255,.10);
+    --focus:#9085e9;
+    --focus-soft: color-mix(in srgb, var(--focus) 18%, var(--surface-1));
+    --match-1:#3987e5;
+    --match-2:#d95926;
+    --match-3:#199e70;
+    --match-4:#c98500;
+    --match-5:#a480e0;
+    --shadow: 0 1px 2px rgba(0,0,0,.3), 0 8px 24px rgba(0,0,0,.35);
+  }
+
+  *{ box-sizing: border-box; }
+  html, body{ margin: 0; padding: 0; }
+  body{
+    background: var(--page);
+    color: var(--text-primary);
+    font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  .wrap{
+    max-width: 1180px;
+    margin: 0 auto;
+    padding: 28px 20px 48px;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+  }
+  code, .mono{
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  }
+
+  /* header */
+  header h1{
+    margin: 0 0 4px;
+    font-size: 22px;
+    letter-spacing: -0.01em;
+    text-wrap: balance;
+  }
+  header p.sub{
+    margin: 0;
+    color: var(--text-secondary);
+    font-size: 14.5px;
+    max-width: 72ch;
+  }
+  header p.sub code{
+    background: var(--focus-soft);
+    color: var(--focus);
+    padding: 1px 5px;
+    border-radius: 4px;
+    font-size: 13px;
+  }
+  .sample-note{
+    margin-top: 8px;
+    font-size: 12.5px;
+    color: var(--muted);
+    max-width: 68ch;
+  }
+
+  .legend{
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 14px;
+    margin-top: 12px;
+    max-height: 0;
+    opacity: 0;
+    overflow: hidden;
+    transition: opacity .4s ease, max-height .4s ease;
+  }
+  .legend.shown{ max-height: 60px; opacity: 1; }
+  .legend-title{
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: .04em;
+    color: var(--muted);
+    margin-right: 2px;
+  }
+  .legend-item{
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12.5px;
+    color: var(--text-secondary);
+  }
+  .legend-dot{
+    width: 9px; height: 9px; border-radius: 50%;
+    flex: none;
+  }
+  .legend-dot.none{
+    background: transparent;
+    border: 1.5px dashed var(--muted);
+  }
+
+  /* stage bar */
+  .stage-bar{
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  .stage-bar .stage-title{
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--focus);
+    text-transform: uppercase;
+    letter-spacing: .04em;
+  }
+  .stage-bar .stage-count{
+    font-size: 12.5px;
+    color: var(--muted);
+  }
+
+  /* tables grid */
+  .tables-grid{
+    display: grid;
+    grid-template-columns: minmax(0,1.7fr) minmax(0,1fr);
+    gap: 18px;
+    align-items: start;
+  }
+  @media (max-width: 760px){
+    .tables-grid, .bottom-grid{ grid-template-columns: 1fr; }
+  }
+
+  .panel{
+    background: var(--surface-1);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    box-shadow: var(--shadow);
+    transition: opacity .4s ease;
+  }
+  .panel.dimmed{ opacity: .45; }
+  .panel-label{
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: .05em;
+    color: var(--muted);
+    padding: 12px 14px 0;
+  }
+
+  .table-scroll{
+    overflow-x: auto;
+    border-radius: 14px;
+  }
+  table.data{
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13.5px;
+  }
+  table.data th, table.data td{
+    padding: 9px 12px;
+    text-align: left;
+    white-space: nowrap;
+  }
+  table.data thead th{
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: .04em;
+    color: var(--muted);
+    border-bottom: 1px solid var(--grid);
+    position: relative;
+  }
+  table.data td.num, table.data th.num{ text-align: right; font-variant-numeric: tabular-nums; }
+
+  tr.data-row{
+    border-bottom: 1px solid var(--grid);
+    transition: background .45s ease, box-shadow .45s ease, opacity .4s ease;
+  }
+  tr.data-row td{ color: var(--text-secondary); }
+  tr.data-row td.col-key{ color: var(--text-primary); font-weight: 600; }
+
+  tr.data-row.is-matched{
+    box-shadow: inset 3px 0 0 0 var(--match-color);
+    background: color-mix(in srgb, var(--match-color) 7%, var(--surface-1));
+  }
+  tr.data-row.is-unmatched{
+    box-shadow: inset 3px 0 0 0 var(--muted);
+  }
+  tr.data-row.is-unmatched.is-focus{
+    animation: pulseFocus 1.3s ease-in-out infinite;
+  }
+  tr.data-row.is-dropped{
+    box-shadow: inset 3px 0 0 0 var(--muted);
+    opacity: .45;
+  }
+  tr.data-row.is-dropped td:not(.col-extra){ text-decoration: line-through; }
+  @keyframes pulseFocus{
+    0%, 100%{ box-shadow: inset 3px 0 0 0 var(--muted); background: var(--surface-1); }
+    50%{ box-shadow: inset 3px 0 0 0 var(--focus); background: var(--focus-soft); }
+  }
+
+  table.data.highlight-key td.col-key,
+  table.data.highlight-key th.col-key{
+    background: var(--focus-soft);
+  }
+  table.data.highlight-key td.col-key{ font-weight: 700; }
+  table.data.highlight-key th.col-key{ color: var(--focus); }
+  table.data.highlight-key td:not(.col-key){ opacity: .5; }
+  table.data td, table.data th{ transition: opacity .4s ease, background .4s ease, color .4s ease; }
+
+  td.col-extra, th.col-extra{ color: var(--text-secondary); }
+  .reveal-cell{
+    display: inline-block;
+    opacity: 0;
+    transform: translateY(3px);
+    transition: opacity .35s ease, transform .35s ease;
+  }
+  .reveal-cell.shown{ opacity: 1; transform: translateY(0); }
+  .excluded-cell{ color: var(--muted); }
+
+  /* summary rows */
+  tr.summary-row td{ padding: 0; border-bottom: 1px solid var(--grid); }
+  .summary-inner{
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 12px 8px 16px;
+    flex-wrap: wrap;
+  }
+  .summary-group{
+    font-size: 11.5px;
+    font-weight: 700;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: .03em;
+    margin-right: 4px;
+    flex: none;
+  }
+  .stat-tile{
+    display: inline-flex;
+    align-items: baseline;
+    gap: 5px;
+    background: var(--focus-soft);
+    border-radius: 8px;
+    padding: 3px 9px;
+    font-size: 12.5px;
+    opacity: 0;
+    transform: translateY(4px) scale(.96);
+    transition: opacity .35s ease, transform .35s ease;
+  }
+  .stat-tile.shown{ opacity: 1; transform: translateY(0) scale(1); }
+  .stat-tile .tile-label{ color: var(--text-secondary); }
+  .stat-tile .tile-value{ font-weight: 700; color: var(--focus); font-variant-numeric: tabular-nums; }
+
+  /* result pane */
+  .result-pane{
+    padding: 16px;
+    border-top: 1px dashed var(--grid);
+    max-height: 0;
+    opacity: 0;
+    overflow: hidden;
+    transition: max-height .5s ease, opacity .5s ease, padding .5s ease;
+  }
+  .result-pane.shown{
+    max-height: 400px;
+    opacity: 1;
+  }
+  .result-pane h3{
+    margin: 0 0 2px;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: .04em;
+    color: var(--muted);
+  }
+  .result-pane .result-caption{
+    font-size: 12.5px;
+    color: var(--text-secondary);
+    margin-bottom: 10px;
+  }
+  table.result{
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13.5px;
+  }
+  table.result th, table.result td{
+    padding: 7px 10px;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    border-bottom: 1px solid var(--grid);
+  }
+  table.result th:first-child, table.result td:first-child{ text-align: left; font-variant-numeric: normal; }
+  table.result thead th{
+    font-size: 11px;
+    text-transform: uppercase;
+    color: var(--muted);
+    letter-spacing: .03em;
+  }
+  table.result td:first-child{ font-weight: 700; }
+  .count-bar-wrap{ display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
+  .count-bar{
+    width: 60px; height: 6px; border-radius: 3px;
+    background: color-mix(in srgb, var(--focus) 16%, var(--surface-1));
+    overflow: hidden;
+  }
+  .count-bar-fill{ height: 100%; background: var(--focus); }
+
+  /* code + narrative */
+  .bottom-grid{
+    display: grid;
+    grid-template-columns: minmax(0,1.3fr) minmax(0,1fr);
+    gap: 18px;
+    align-items: start;
+  }
+  .code-card{ padding: 14px 16px; }
+  .code-card .code-label{
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: .05em;
+    color: var(--muted);
+    margin-bottom: 8px;
+  }
+  pre.code-block{
+    margin: 0;
+    font-size: 13px;
+    line-height: 1.65;
+    white-space: pre;
+    overflow-x: auto;
+    color: var(--text-secondary);
+  }
+  .tok{ transition: color .3s ease, font-weight .3s ease; border-radius: 4px; }
+  .tok.active{ color: var(--focus); font-weight: 700; background: var(--focus-soft); padding: 0 2px; margin: 0 -2px; }
+
+  .narrative{ padding: 16px; font-size: 14px; line-height: 1.55; color: var(--text-secondary); }
+  .narrative code{
+    background: var(--focus-soft);
+    color: var(--focus);
+    padding: 1px 5px;
+    border-radius: 4px;
+    font-size: 12.5px;
+  }
+  .narrative .prompt{
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px dashed var(--grid);
+    color: var(--muted);
+    font-size: 13px;
+  }
+
+  /* controls */
+  .controls{
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+    flex-wrap: wrap;
+    padding-top: 4px;
+  }
+  .btn{
+    appearance: none;
+    border: 1px solid var(--border);
+    background: var(--surface-1);
+    color: var(--text-primary);
+    font-size: 13.5px;
+    font-weight: 600;
+    padding: 9px 16px;
+    border-radius: 10px;
+    cursor: pointer;
+    transition: background .2s ease, transform .1s ease, opacity .2s ease;
+  }
+  .btn:hover{ background: color-mix(in srgb, var(--focus) 8%, var(--surface-1)); }
+  .btn:active{ transform: scale(.97); }
+  .btn:disabled{ opacity: .4; cursor: default; }
+  .btn:disabled:hover{ background: var(--surface-1); }
+  .btn.primary{ background: var(--focus); color: #fff; border-color: var(--focus); }
+  .btn.primary:hover{ opacity: .92; background: var(--focus); }
+  .btn.ghost{ background: transparent; }
+
+  .dots{ display: flex; gap: 7px; }
+  .dot{
+    width: 9px; height: 9px;
+    border-radius: 50%;
+    background: var(--grid);
+    border: none;
+    padding: 0;
+    cursor: pointer;
+    transition: background .25s ease, transform .25s ease;
+  }
+  .dot:hover{ transform: scale(1.2); }
+  .dot.active{ background: var(--focus); transform: scale(1.3); }
+  .dot.past{ background: color-mix(in srgb, var(--focus) 45%, var(--grid)); }
+
+  @media (prefers-reduced-motion: reduce){
+    tr.data-row, .reveal-cell, .stat-tile, .result-pane, table.data td, table.data th, .panel{ transition: none !important; }
+    tr.data-row.is-unmatched.is-focus{ animation: none !important; box-shadow: inset 3px 0 0 0 var(--focus); background: var(--focus-soft); }
+  }
+</style></head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Join &rarr; Group &rarr; Sort</h1>
+    <p class="sub">Watching <code>trips INNER JOIN zones ... GROUP BY z.Borough ... ORDER BY num_trips DESC</code> happen, one step at a time.</p>
+    <p class="sample-note" id="sampleNote"></p>
+    <div class="legend" id="legend"><span class="legend-title" id="legendTitle">Join key</span></div>
+  </header>
+
+  <div class="stage-bar">
+    <span class="stage-title" id="stageTitle">Stage</span>
+    <span class="stage-count" id="stageCount">Step 1 of 8</span>
+  </div>
+
+  <div class="tables-grid">
+    <section class="panel table-pane" id="tripsPanel">
+      <div class="panel-label">trips</div>
+      <div class="table-scroll">
+        <table class="data" id="tripsTable">
+          <thead><tr id="tripsHead"></tr></thead>
+          <tbody id="tripsBody"></tbody>
+        </table>
+      </div>
+      <div class="result-pane" id="resultPane">
+        <h3>Result</h3>
+        <div class="result-caption">What the query actually returns, ranked by <code>num_trips DESC</code></div>
+        <table class="result" id="resultTable">
+          <thead><tr><th>pickup_borough</th><th>num_trips</th><th>avg_fare</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="panel table-pane" id="zonesPanel">
+      <div class="panel-label">zones (lookup)</div>
+      <div class="table-scroll">
+        <table class="data" id="zonesTable">
+          <thead><tr id="zonesHead"></tr></thead>
+          <tbody id="zonesBody"></tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+
+  <div class="bottom-grid">
+    <div class="panel code-card">
+      <div class="code-label">sql</div>
+      <pre class="code-block"><code>SELECT
+    <span class="tok" id="tok-groupby">z.Borough AS pickup_borough</span>,
+    <span class="tok" id="tok-count">COUNT(*) AS num_trips</span>,
+    <span class="tok" id="tok-avg">AVG(t.base_passenger_fare) AS avg_fare</span>
+FROM <span class="tok" id="tok-trips">trips AS t</span>
+<span class="tok" id="tok-innerjoin">INNER JOIN zones AS z</span>
+    ON <span class="tok" id="tok-on">t.PULocationID = z.LocationID</span>
+GROUP BY z.Borough
+<span class="tok" id="tok-orderby">ORDER BY num_trips DESC</span></code></pre>
+    </div>
+    <div class="panel narrative" id="narrative"></div>
+  </div>
+
+  <div class="controls">
+    <button class="btn ghost" id="prevBtn">&larr; Prev</button>
+    <div class="dots" id="dots"></div>
+    <button class="btn primary" id="nextBtn">Next &rarr;</button>
+    <button class="btn" id="replayBtn">Replay</button>
+  </div>
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  /* ---------------- CONFIG ---------------- */
+
+  var TRIP_COLS = [
+    { key: "trip_id",              label: "Trip" },
+    { key: "PULocationID",         label: "PU Location", cls: "col-key num", num: true },
+    { key: "trip_miles",           label: "Miles",        cls: "num", num: true, fmt: "miles" },
+    { key: "base_passenger_fare",  label: "Fare",         cls: "num", num: true, fmt: "currency" },
+    { key: "driver_pay",           label: "Driver Pay",   cls: "num", num: true, fmt: "currency" }
+  ];
+
+  var ZONE_COLS = [
+    { key: "LocationID", label: "Location ID", cls: "col-key num", num: true },
+    { key: "Borough",    label: "Borough" },
+    { key: "Zone",       label: "Zone" }
+  ];
+
+  // Same synthetic trips/zones as the LEFT JOIN demo, so the two demos read as one story.
+  var TRIPS = [
+    { trip_id: "T1", PULocationID: 230, trip_miles: 2.1, base_passenger_fare: 12.50, driver_pay: 9.80 },
+    { trip_id: "T2", PULocationID: 4,   trip_miles: 0.8, base_passenger_fare: 6.75,  driver_pay: 5.20 },
+    { trip_id: "T3", PULocationID: 999, trip_miles: 5.4, base_passenger_fare: 21.00, driver_pay: 16.40 },
+    { trip_id: "T4", PULocationID: 138, trip_miles: 9.6, base_passenger_fare: 34.10, driver_pay: 27.00 },
+    { trip_id: "T5", PULocationID: 79,  trip_miles: 1.3, base_passenger_fare: 8.90,  driver_pay: 6.95 },
+    { trip_id: "T6", PULocationID: 230, trip_miles: 3.0, base_passenger_fare: 15.25, driver_pay: 11.60 },
+    { trip_id: "T7", PULocationID: 161, trip_miles: 4.2, base_passenger_fare: 17.80, driver_pay: 13.90 },
+    { trip_id: "T8", PULocationID: 4,   trip_miles: 1.1, base_passenger_fare: 7.40,  driver_pay: 5.75 }
+  ];
+
+  var ZONES = [
+    { LocationID: 4,   Borough: "Manhattan", Zone: "Alphabet City" },
+    { LocationID: 79,  Borough: "Manhattan", Zone: "East Village" },
+    { LocationID: 138, Borough: "Queens",    Zone: "LaGuardia Airport" },
+    { LocationID: 161, Borough: "Manhattan", Zone: "Midtown Center" },
+    { LocationID: 230, Borough: "Manhattan", Zone: "Times Sq/Theatre District" },
+    { LocationID: 7,   Borough: "Queens",    Zone: "Astoria" }
+  ];
+
+  var STAGES = [
+    { token: "trips", title: "Two tables again",
+      narrative: "Same <code>trips</code> and <code>zones</code> tables as the LEFT JOIN demo. This time we're using <strong>INNER JOIN</strong> and asking a follow-up question: which borough gets the most rides, and what's the average fare there?" },
+    { token: "on", title: "The join key",
+      narrative: "<code>ON t.PULocationID = z.LocationID</code> &mdash; the same key as before. Watch both columns light up." },
+    { token: "innerjoin", title: "Match rows",
+      narrative: "Rows that share an ID light up together, just like in the LEFT JOIN demo so far." },
+    { token: "innerjoin", title: "No match &rarr; dropped",
+      narrative: "<code>PULocationID</code> 999 still has no match in <code>zones</code>. It's shown here struck through so you can see what's excluded, but with <strong>INNER</strong> JOIN it will not appear in the result at all.",
+      prompt: "Compare to the LEFT JOIN demo: there, this exact row survived with NULLs. Under INNER JOIN it's simply gone." },
+    { token: "groupby", title: "Split &mdash; group by borough",
+      narrative: "<code>z.Borough AS pickup_borough</code> is attached to every surviving row, then <code>GROUP BY z.Borough</code> clusters them. Rows that were colored individually by location now share one color per borough." },
+    { token: "count", title: "Apply &mdash; count",
+      narrative: "<code>COUNT(*) AS num_trips</code> counts the rows in each borough group." },
+    { token: "avg", title: "Apply &mdash; avg",
+      narrative: "<code>AVG(t.base_passenger_fare) AS avg_fare</code> averages the fare within each group." },
+    { token: "orderby", title: "Combine &mdash; order by num_trips",
+      narrative: "<code>ORDER BY num_trips DESC</code> ranks the groups by ride count. This is the full result of the query: one row per borough, busiest first.",
+      prompt: "Try it yourself: add <code>HAVING num_trips &gt; 1</code> right before ORDER BY. Which group drops out?" }
+  ];
+
+  var LOCATION_COLORS = ["var(--match-1)", "var(--match-2)", "var(--match-3)", "var(--match-4)", "var(--match-5)"];
+  var BOROUGH_ORDER = ["Manhattan", "Queens"];
+  var BOROUGH_COLORS = { Manhattan: "var(--match-1)", Queens: "var(--match-3)" };
+
+  /* ---------------- END CONFIG ---------------- */
+
+  var reduceMotion = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  var zonesByLoc = {};
+  ZONES.forEach(function(z){ zonesByLoc[z.LocationID] = z; });
+
+  var locationColorForKey = {};
+  (function(){
+    var next = 0;
+    TRIPS.forEach(function(t){
+      var id = t.PULocationID;
+      if (zonesByLoc[id] && !locationColorForKey[id]){
+        locationColorForKey[id] = LOCATION_COLORS[next % LOCATION_COLORS.length];
+        next++;
+      }
+    });
+  })();
+
+  var tripsPanel = document.getElementById("tripsPanel");
+  var zonesPanel = document.getElementById("zonesPanel");
+  var tripsTable = document.getElementById("tripsTable");
+  var tripsHead = document.getElementById("tripsHead");
+  var tripsBody = document.getElementById("tripsBody");
+  var zonesTable = document.getElementById("zonesTable");
+  var zonesHead = document.getElementById("zonesHead");
+  var zonesBody = document.getElementById("zonesBody");
+  var resultPane = document.getElementById("resultPane");
+  var resultBody = resultPane.querySelector("table.result tbody");
+  var narrativeEl = document.getElementById("narrative");
+  var stageTitleEl = document.getElementById("stageTitle");
+  var stageCountEl = document.getElementById("stageCount");
+  var dotsEl = document.getElementById("dots");
+  var legendEl = document.getElementById("legend");
+  var legendTitleEl = document.getElementById("legendTitle");
+  var sampleNoteEl = document.getElementById("sampleNote");
+  var prevBtn = document.getElementById("prevBtn");
+  var nextBtn = document.getElementById("nextBtn");
+  var replayBtn = document.getElementById("replayBtn");
+
+  sampleNoteEl.textContent = TRIPS.length + " synthetic HVFHV-style trips and a " + ZONES.length +
+    "-row zones lookup — the same sample used in the LEFT JOIN demo, so the two are easy to compare.";
+
+  function fmtCurrency(v){ return "$" + v.toFixed(2); }
+  function fmtMiles(v){ return v.toFixed(1); }
+
+  function cellContent(col, row){
+    var v = row[col.key];
+    if (col.fmt === "currency") return fmtCurrency(v);
+    if (col.fmt === "miles") return fmtMiles(v);
+    return String(v);
+  }
+
+  function buildHead(headRow, cols){
+    cols.forEach(function(col){
+      var th = document.createElement("th");
+      th.textContent = col.label;
+      th.className = col.cls || "";
+      headRow.appendChild(th);
+    });
+  }
+  buildHead(tripsHead, TRIP_COLS);
+  buildHead(zonesHead, ZONE_COLS);
+
+  TRIPS.forEach(function(row, idx){
+    var tr = document.createElement("tr");
+    tr.className = "data-row";
+    tr.dataset.idx = String(idx);
+    tr.dataset.pu = String(row.PULocationID);
+    TRIP_COLS.forEach(function(col){
+      var td = document.createElement("td");
+      td.className = col.cls || "";
+      td.textContent = cellContent(col, row);
+      tr.appendChild(td);
+    });
+    tripsBody.appendChild(tr);
+  });
+
+  ZONES.forEach(function(row){
+    var tr = document.createElement("tr");
+    tr.className = "data-row";
+    tr.dataset.loc = String(row.LocationID);
+    ZONE_COLS.forEach(function(col){
+      var td = document.createElement("td");
+      td.className = col.cls || "";
+      td.textContent = cellContent(col, row);
+      tr.appendChild(td);
+    });
+    zonesBody.appendChild(tr);
+  });
+
+  /* ---- location legend (stages 2-3) ---- */
+  function buildLocationLegend(){
+    legendEl.innerHTML = "";
+    legendTitleEl = document.createElement("span");
+    legendTitleEl.className = "legend-title";
+    legendTitleEl.textContent = "Join key";
+    legendEl.appendChild(legendTitleEl);
+    Object.keys(locationColorForKey).forEach(function(id){
+      var item = document.createElement("span");
+      item.className = "legend-item";
+      var dot = document.createElement("span");
+      dot.className = "legend-dot";
+      dot.style.background = locationColorForKey[id];
+      item.appendChild(dot);
+      item.appendChild(document.createTextNode(id));
+      legendEl.appendChild(item);
+    });
+    var item = document.createElement("span");
+    item.className = "legend-item";
+    var dot = document.createElement("span");
+    dot.className = "legend-dot none";
+    item.appendChild(dot);
+    item.appendChild(document.createTextNode("999 → no match"));
+    legendEl.appendChild(item);
+  }
+
+  /* ---- borough legend (stage 4+) ---- */
+  function buildBoroughLegend(){
+    legendEl.innerHTML = "";
+    legendTitleEl = document.createElement("span");
+    legendTitleEl.className = "legend-title";
+    legendTitleEl.textContent = "Borough group";
+    legendEl.appendChild(legendTitleEl);
+    BOROUGH_ORDER.forEach(function(b){
+      var item = document.createElement("span");
+      item.className = "legend-item";
+      var dot = document.createElement("span");
+      dot.className = "legend-dot";
+      dot.style.background = BOROUGH_COLORS[b];
+      item.appendChild(dot);
+      item.appendChild(document.createTextNode(b));
+      legendEl.appendChild(item);
+    });
+  }
+  buildLocationLegend();
+
+  /* ---- dots ---- */
+  var dots = STAGES.map(function(_, i){
+    var d = document.createElement("button");
+    d.className = "dot";
+    d.type = "button";
+    d.setAttribute("aria-label", "Go to stage " + (i + 1));
+    d.addEventListener("click", function(){ setStage(i); });
+    dotsEl.appendChild(d);
+    return d;
+  });
+
+  /* ---- row state painting ---- */
+  function paintLocationMatch(show){
+    tripsBody.querySelectorAll("tr.data-row").forEach(function(r){
+      var pu = r.dataset.pu;
+      if (locationColorForKey[pu]){
+        r.classList.toggle("is-matched", show);
+        if (show) r.style.setProperty("--match-color", locationColorForKey[pu]);
+      } else {
+        r.classList.toggle("is-unmatched", show);
+      }
+    });
+    zonesBody.querySelectorAll("tr.data-row").forEach(function(r){
+      var loc = r.dataset.loc;
+      if (locationColorForKey[loc]){
+        r.classList.toggle("is-matched", show);
+        if (show) r.style.setProperty("--match-color", locationColorForKey[loc]);
+      }
+    });
+  }
+
+  function focusUnmatched(show){
+    tripsBody.querySelectorAll("tr.data-row.is-unmatched").forEach(function(r){
+      r.classList.toggle("is-focus", show);
+    });
+  }
+
+  function paintBoroughGroups(show){
+    tripsBody.querySelectorAll("tr.data-row").forEach(function(r){
+      var row = TRIPS[+r.dataset.idx];
+      var z = zonesByLoc[row.PULocationID];
+      if (z){
+        r.classList.toggle("is-matched", show);
+        if (show) r.style.setProperty("--match-color", BOROUGH_COLORS[z.Borough]);
+      } else {
+        r.classList.toggle("is-dropped", show);
+        if (show){ r.classList.remove("is-unmatched"); r.classList.remove("is-focus"); }
+      }
+    });
+  }
+
+  /* ---- FLIP reorder of trips rows by borough ---- */
+  function rankFor(row){
+    var z = zonesByLoc[row.PULocationID];
+    if (!z) return BOROUGH_ORDER.length; // dropped row sinks to the bottom
+    return BOROUGH_ORDER.indexOf(z.Borough);
+  }
+
+  function flipRows(grouped){
+    return new Promise(function(resolve){
+      var rows = Array.prototype.slice.call(tripsBody.querySelectorAll("tr.data-row"));
+      var firstRects = new Map();
+      rows.forEach(function(r){ firstRects.set(r, r.getBoundingClientRect()); });
+
+      var ordered = rows.slice().sort(function(a, b){
+        if (grouped){
+          var ra = rankFor(TRIPS[+a.dataset.idx]), rb = rankFor(TRIPS[+b.dataset.idx]);
+          if (ra !== rb) return ra - rb;
+        }
+        return (+a.dataset.idx) - (+b.dataset.idx);
+      });
+      ordered.forEach(function(r){ tripsBody.appendChild(r); });
+
+      if (reduceMotion){ resolve(); return; }
+
+      var animated = [];
+      ordered.forEach(function(r){
+        var last = r.getBoundingClientRect();
+        var first = firstRects.get(r);
+        var dy = first.top - last.top;
+        if (Math.abs(dy) > 0.5){
+          r.style.transition = "none";
+          r.style.transform = "translateY(" + dy + "px)";
+          animated.push(r);
+        }
+      });
+      void tripsBody.offsetHeight;
+      requestAnimationFrame(function(){
+        animated.forEach(function(r){
+          r.style.transition = "transform .55s cubic-bezier(.2,.7,.2,1)";
+          r.style.transform = "";
+        });
+        setTimeout(function(){
+          animated.forEach(function(r){ r.style.transition = ""; });
+          resolve();
+        }, 560);
+      });
+    });
+  }
+
+  /* ---- attach pickup_borough column ---- */
+  var boroughColAttached = false;
+
+  function removeBoroughCol(){
+    tripsHead.querySelectorAll("th.col-extra").forEach(function(th){ th.remove(); });
+    tripsBody.querySelectorAll("td.col-extra").forEach(function(td){ td.remove(); });
+    boroughColAttached = false;
+  }
+
+  function insertBoroughCol(){
+    var th = document.createElement("th");
+    th.textContent = "Pickup Borough";
+    th.className = "col-extra";
+    tripsHead.appendChild(th);
+
+    tripsBody.querySelectorAll("tr.data-row").forEach(function(tr){
+      var row = TRIPS[+tr.dataset.idx];
+      var z = zonesByLoc[row.PULocationID];
+      var td = document.createElement("td");
+      td.className = "col-extra";
+      var span = document.createElement("span");
+      span.className = "reveal-cell";
+      if (z){
+        span.textContent = z.Borough;
+      } else {
+        var ex = document.createElement("span");
+        ex.className = "excluded-cell";
+        ex.textContent = "—";
+        span.appendChild(ex);
+      }
+      td.appendChild(span);
+      tr.appendChild(td);
+    });
+
+    void tripsBody.offsetHeight;
+    requestAnimationFrame(function(){
+      tripsBody.querySelectorAll("td.col-extra .reveal-cell").forEach(function(el){
+        el.classList.add("shown");
+      });
+    });
+    boroughColAttached = true;
+  }
+
+  /* ---- aggregation ---- */
+  function computeAgg(){
+    var acc = {};
+    BOROUGH_ORDER.forEach(function(b){ acc[b] = { count: 0, sumFare: 0 }; });
+    TRIPS.forEach(function(row){
+      var z = zonesByLoc[row.PULocationID];
+      if (!z) return;
+      acc[z.Borough].count += 1;
+      acc[z.Borough].sumFare += row.base_passenger_fare;
+    });
+    BOROUGH_ORDER.forEach(function(b){
+      acc[b].avg = acc[b].count ? acc[b].sumFare / acc[b].count : 0;
+    });
+    return acc;
+  }
+  var AGG = computeAgg();
+  var MAX_COUNT = Math.max.apply(null, BOROUGH_ORDER.map(function(b){ return AGG[b].count; }));
+
+  /* ---- summary rows (per borough) ---- */
+  function insertSummaryRows(){
+    var lastRowByBorough = {};
+    tripsBody.querySelectorAll("tr.data-row").forEach(function(r){
+      var row = TRIPS[+r.dataset.idx];
+      var z = zonesByLoc[row.PULocationID];
+      if (z) lastRowByBorough[z.Borough] = r;
+    });
+
+    BOROUGH_ORDER.forEach(function(b){
+      var anchor = lastRowByBorough[b];
+      if (!anchor) return;
+      var tr = document.createElement("tr");
+      tr.className = "summary-row";
+      tr.dataset.borough = b;
+
+      var td = document.createElement("td");
+      td.colSpan = TRIP_COLS.length + (boroughColAttached ? 1 : 0);
+
+      var inner = document.createElement("div");
+      inner.className = "summary-inner";
+
+      var label = document.createElement("span");
+      label.className = "summary-group";
+      label.style.color = BOROUGH_COLORS[b];
+      label.textContent = b;
+      inner.appendChild(label);
+
+      var a = AGG[b];
+
+      var countTile = document.createElement("span");
+      countTile.className = "stat-tile";
+      countTile.dataset.tile = "count";
+      countTile.innerHTML = '<span class="tile-label">trips</span><span class="tile-value" data-target="' + a.count + '">0</span>';
+      inner.appendChild(countTile);
+
+      var avgTile = document.createElement("span");
+      avgTile.className = "stat-tile";
+      avgTile.dataset.tile = "avg";
+      avgTile.innerHTML = '<span class="tile-label">avg fare</span><span class="tile-value" data-target="' + a.avg + '">$0.00</span>';
+      inner.appendChild(avgTile);
+
+      td.appendChild(inner);
+      tr.appendChild(td);
+      anchor.parentNode.insertBefore(tr, anchor.nextSibling);
+    });
+  }
+
+  function removeSummaryRows(){
+    return new Promise(function(resolve){
+      var rows = Array.prototype.slice.call(tripsBody.querySelectorAll("tr.summary-row"));
+      if (!rows.length){ resolve(); return; }
+      rows.forEach(function(r){ r.querySelectorAll(".stat-tile").forEach(function(t){ t.classList.remove("shown"); }); });
+      var wait = reduceMotion ? 0 : 260;
+      setTimeout(function(){
+        rows.forEach(function(r){ r.remove(); });
+        resolve();
+      }, wait);
+    });
+  }
+
+  function countUp(el, from, to, isCurrency, duration){
+    if (reduceMotion || duration <= 0){
+      el.textContent = isCurrency ? fmtCurrency(to) : String(to);
+      return;
+    }
+    var start = performance.now();
+    function step(now){
+      var t = Math.min(1, (now - start) / duration);
+      var eased = 1 - Math.pow(1 - t, 3);
+      var v = from + (to - from) * eased;
+      el.textContent = isCurrency ? fmtCurrency(v) : Math.round(v);
+      if (t < 1) requestAnimationFrame(step); else el.textContent = isCurrency ? fmtCurrency(to) : String(to);
+    }
+    requestAnimationFrame(step);
+  }
+
+  function revealTile(kind, show){
+    document.querySelectorAll('.stat-tile[data-tile="' + kind + '"]').forEach(function(tile){
+      var valueEl = tile.querySelector(".tile-value");
+      var target = +valueEl.dataset.target;
+      var alreadyShown = tile.classList.contains("shown");
+      if (show){
+        if (alreadyShown) return;
+        tile.classList.add("shown");
+        countUp(valueEl, 0, target, kind === "avg", 700);
+      } else if (alreadyShown){
+        tile.classList.remove("shown");
+        valueEl.textContent = kind === "avg" ? "$0.00" : "0";
+      }
+    });
+  }
+
+  /* ---- final result table (built once) ---- */
+  BOROUGH_ORDER.forEach(function(b){
+    var a = AGG[b];
+    var tr = document.createElement("tr");
+    var pct = MAX_COUNT ? Math.round((a.count / MAX_COUNT) * 100) : 0;
+    tr.innerHTML = "<td>" + b + "</td>" +
+      "<td><span class=\"count-bar-wrap\"><span class=\"count-bar\"><span class=\"count-bar-fill\" style=\"width:" + pct + "%\"></span></span>" + a.count + "</span></td>" +
+      "<td>" + fmtCurrency(a.avg) + "</td>";
+    resultBody.appendChild(tr);
+  });
+
+  /* ---- stage state machine ---- */
+  var stage = -1; // force first render
+
+  function setStage(n){
+    n = Math.max(0, Math.min(STAGES.length - 1, n));
+    if (n === stage) return;
+    var wasGrouped = stage >= 4;
+    var willGroup = n >= 4;
+    stage = n;
+
+    tripsTable.classList.toggle("highlight-key", stage === 1);
+    zonesTable.classList.toggle("highlight-key", stage === 1);
+
+    if (stage >= 2 && stage <= 3){
+      paintLocationMatch(true);
+    } else if (stage < 2){
+      paintLocationMatch(false);
+    }
+    focusUnmatched(stage === 3);
+
+    zonesPanel.classList.toggle("dimmed", stage >= 4);
+
+    var chain = Promise.resolve();
+    if (!wasGrouped && willGroup){
+      legendEl.classList.remove("shown");
+      insertBoroughCol();
+      chain = chain.then(function(){ return flipRows(true); }).then(function(){
+        paintBoroughGroups(true);
+        buildBoroughLegend();
+        insertSummaryRows();
+        legendEl.classList.add("shown");
+      });
+    } else if (wasGrouped && !willGroup){
+      chain = chain.then(removeSummaryRows).then(function(){
+        paintBoroughGroups(false);
+        return flipRows(false);
+      }).then(function(){
+        removeBoroughCol();
+        legendEl.classList.remove("shown");
+        buildLocationLegend();
+        if (stage >= 2 && stage <= 3){
+          paintLocationMatch(true);
+          focusUnmatched(stage === 3);
+          legendEl.classList.add("shown");
+        }
+      });
+    } else if (willGroup){
+      // already grouped, just keep tiles/result pane in sync below
+    } else {
+      legendEl.classList.toggle("shown", stage >= 2);
+    }
+
+    chain.then(function(){
+      revealTile("count", stage >= 5);
+      revealTile("avg", stage >= 6);
+      resultPane.classList.toggle("shown", stage >= 7);
+
+      document.querySelectorAll(".tok").forEach(function(el){ el.classList.remove("active"); });
+      var tok = document.getElementById("tok-" + STAGES[stage].token);
+      if (tok) tok.classList.add("active");
+
+      var s = STAGES[stage];
+      stageTitleEl.innerHTML = s.title;
+      stageCountEl.textContent = "Step " + (stage + 1) + " of " + STAGES.length;
+      narrativeEl.innerHTML = "<p>" + s.narrative + "</p>" + (s.prompt ? '<p class="prompt">' + s.prompt + "</p>" : "");
+
+      dots.forEach(function(d, i){
+        d.classList.toggle("active", i === stage);
+        d.classList.toggle("past", i < stage);
+      });
+
+      prevBtn.disabled = stage === 0;
+      nextBtn.disabled = stage === STAGES.length - 1;
+      nextBtn.textContent = stage === STAGES.length - 1 ? "Done" : "Next →";
+    });
+  }
+
+  prevBtn.addEventListener("click", function(){ setStage(stage - 1); });
+  nextBtn.addEventListener("click", function(){ setStage(stage + 1); });
+  replayBtn.addEventListener("click", function(){ setStage(0); });
+
+  window.addEventListener("keydown", function(e){
+    if (e.key === "ArrowRight"){ setStage(stage + 1); }
+    else if (e.key === "ArrowLeft"){ setStage(stage - 1); }
+  });
+
+  setStage(0);
+})();
+</script>
+
+</body>
+</html>
