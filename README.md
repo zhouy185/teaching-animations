@@ -1,21 +1,25 @@
-# Split-Apply-Combine
+# Teaching Animations
 
-An interactive, step-through animation of pandas' `groupby().agg()`, built for lecture. Watch 16 real orders sort into store groups, get narrowed to one column, and get counted, summed, and averaged — one `Next` click at a time.
+A growing collection of interactive, step-through animations built for lecture. `index.html` is a table of contents linking to each demo.
 
 Live: https://zhouy185.github.io/teaching-animations/ (once GitHub Pages is enabled on this repo)
 
+## Demos
+
+1. **Split &rarr; Apply &rarr; Combine** ([split-apply-combine.html](split-apply-combine.html)) — pandas' `groupby().agg()`, one step at a time. Watch 16 real orders sort into store groups, get narrowed to one column, and get counted, summed, and averaged.
+
 ## Using it in class
 
-- Open `index.html` in any browser, or use the Pages URL above once it's live.
-- `Next` / `Prev` buttons, or the Left/Right arrow keys, step through the 6 stages.
-- Click a dot below the table to jump straight to any stage.
-- `Replay` resets to the start.
+- Open `index.html` in any browser, or use the Pages URL above once it's live, and click through to a demo.
+- Each demo has `Next` / `Prev` buttons, or Left/Right arrow keys, to step through its stages.
+- Click a dot below a demo's table to jump straight to any stage.
+- `Replay` resets a demo to the start.
 
-It's a single static HTML file — no build step, no dependencies, no server. It works offline once loaded.
+Each demo is a single static HTML file — no build step, no dependencies, no server. It works offline once loaded.
 
-## Reusing this as a template for the next animation
+## Adding a new demo
 
-Edit only the `CONFIG` block near the top of the `<script>` in `index.html`:
+Copy `split-apply-combine.html` to a new file and edit its `CONFIG` block near the top of the `<script>`:
 
 - `GROUP_COL` / `TARGET_COL` — the grouping key and the column being aggregated.
 - `COLS` — which columns to display (key, label, alignment, `fmt: "currency" | "bool"`).
