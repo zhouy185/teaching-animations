@@ -1,0 +1,960 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Same Table, Twice</title>
+<meta name="description" content="Step-through animation of joining one lookup table twice under two aliases (pickup and dropoff zones), then grouping by the pair, counting, and pivoting into an origin-destination grid.">
+<style>
+  :root{
+    color-scheme: light;
+    --surface-1:#fcfcfb;
+    --page:#f9f9f7;
+    --text-primary:#0b0b0b;
+    --text-secondary:#52514e;
+    --muted:#898781;
+    --grid:#e1e0d9;
+    --border:rgba(11,11,11,.10);
+    --focus:#4a3aa7;
+    --focus-soft: color-mix(in srgb, var(--focus) 12%, var(--surface-1));
+    --match-1:#2a78d6;
+    --match-2:#eb6834;
+    --match-3:#1baf7a;
+    --shadow: 0 1px 2px rgba(11,11,11,.06), 0 8px 24px rgba(11,11,11,.06);
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      color-scheme: dark;
+      --surface-1:#1a1a19;
+      --page:#0d0d0d;
+      --text-primary:#ffffff;
+      --text-secondary:#c3c2b7;
+      --muted:#898781;
+      --grid:#2c2c2a;
+      --border:rgba(255,255,255,.10);
+      --focus:#9085e9;
+      --focus-soft: color-mix(in srgb, var(--focus) 18%, var(--surface-1));
+      --match-1:#3987e5;
+      --match-2:#d95926;
+      --match-3:#199e70;
+      --shadow: 0 1px 2px rgba(0,0,0,.3), 0 8px 24px rgba(0,0,0,.35);
+    }
+  }
+  :root[data-theme="dark"]{
+    color-scheme: dark;
+    --surface-1:#1a1a19;
+    --page:#0d0d0d;
+    --text-primary:#ffffff;
+    --text-secondary:#c3c2b7;
+    --muted:#898781;
+    --grid:#2c2c2a;
+    --border:rgba(255,255,255,.10);
+    --focus:#9085e9;
+    --focus-soft: color-mix(in srgb, var(--focus) 18%, var(--surface-1));
+    --match-1:#3987e5;
+    --match-2:#d95926;
+    --match-3:#199e70;
+    --shadow: 0 1px 2px rgba(0,0,0,.3), 0 8px 24px rgba(0,0,0,.35);
+  }
+
+  *{ box-sizing: border-box; }
+  html, body{ margin: 0; padding: 0; }
+  body{
+    background: var(--page);
+    color: var(--text-primary);
+    font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  .wrap{
+    max-width: 1180px;
+    margin: 0 auto;
+    padding: 28px 20px 48px;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+  }
+  code, .mono{
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  }
+
+  header h1{
+    margin: 0 0 4px;
+    font-size: 22px;
+    letter-spacing: -0.01em;
+    text-wrap: balance;
+  }
+  header p.sub{
+    margin: 0;
+    color: var(--text-secondary);
+    font-size: 14.5px;
+    max-width: 72ch;
+  }
+  header p.sub code{
+    background: var(--focus-soft);
+    color: var(--focus);
+    padding: 1px 5px;
+    border-radius: 4px;
+    font-size: 13px;
+  }
+  .sample-note{
+    margin-top: 8px;
+    font-size: 12.5px;
+    color: var(--muted);
+    max-width: 68ch;
+  }
+
+  .legend{
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 14px;
+    margin-top: 12px;
+    max-height: 0;
+    opacity: 0;
+    overflow: hidden;
+    transition: opacity .4s ease, max-height .4s ease;
+  }
+  .legend.shown{ max-height: 60px; opacity: 1; }
+  .legend-title{
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: .04em;
+    color: var(--muted);
+    margin-right: 2px;
+  }
+  .legend-item{
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12.5px;
+    color: var(--text-secondary);
+  }
+  .legend-dot{ width: 9px; height: 9px; border-radius: 50%; flex: none; }
+
+  .stage-bar{
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  .stage-bar .stage-title{
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--focus);
+    text-transform: uppercase;
+    letter-spacing: .04em;
+  }
+  .stage-bar .stage-count{ font-size: 12.5px; color: var(--muted); }
+
+  .tables-grid{
+    display: grid;
+    grid-template-columns: minmax(0,1.7fr) minmax(0,1fr);
+    gap: 18px;
+    align-items: start;
+  }
+  @media (max-width: 760px){
+    .tables-grid, .bottom-grid{ grid-template-columns: 1fr; }
+  }
+
+  .panel{
+    background: var(--surface-1);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    box-shadow: var(--shadow);
+    transition: opacity .4s ease;
+  }
+  .panel.dimmed{ opacity: .45; }
+  .panel-label{
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: .05em;
+    color: var(--muted);
+    padding: 12px 14px 0;
+  }
+
+  .table-scroll{ overflow-x: auto; border-radius: 14px; }
+  table.data{ width: 100%; border-collapse: collapse; font-size: 13.5px; }
+  table.data th, table.data td{ padding: 9px 12px; text-align: left; white-space: nowrap; }
+  table.data thead th{
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: .04em;
+    color: var(--muted);
+    border-bottom: 1px solid var(--grid);
+  }
+  table.data td.num, table.data th.num{ text-align: right; font-variant-numeric: tabular-nums; }
+
+  tr.data-row{
+    border-bottom: 1px solid var(--grid);
+    transition: background .45s ease, box-shadow .45s ease, opacity .4s ease;
+  }
+  tr.data-row td{ color: var(--text-secondary); }
+  tr.data-row td.col-pu, tr.data-row td.col-do{ color: var(--text-primary); font-weight: 600; }
+
+  tr.data-row.is-matched{
+    box-shadow: inset 3px 0 0 0 var(--match-color);
+    background: color-mix(in srgb, var(--match-color) 7%, var(--surface-1));
+  }
+  tr.data-row.is-dropped{ box-shadow: inset 3px 0 0 0 var(--muted); opacity: .45; }
+  tr.data-row.is-dropped td:not(.col-extra){ text-decoration: line-through; }
+
+  table.data.highlight-pu td.col-pu, table.data.highlight-pu th.col-pu,
+  table.data.highlight-pu td.col-key, table.data.highlight-pu th.col-key,
+  table.data.highlight-do td.col-do, table.data.highlight-do th.col-do,
+  table.data.highlight-do td.col-key, table.data.highlight-do th.col-key{
+    background: var(--focus-soft);
+  }
+  table.data.highlight-pu td.col-pu, table.data.highlight-pu td.col-key,
+  table.data.highlight-do td.col-do, table.data.highlight-do td.col-key{ font-weight: 700; }
+  table.data.highlight-pu th.col-pu, table.data.highlight-pu th.col-key,
+  table.data.highlight-do th.col-do, table.data.highlight-do th.col-key{ color: var(--focus); }
+  table.data.highlight-pu td:not(.col-pu):not(.col-key):not(.col-extra),
+  table.data.highlight-do td:not(.col-do):not(.col-key):not(.col-extra){ opacity: .5; }
+  table.data td, table.data th{ transition: opacity .4s ease, background .4s ease, color .4s ease; }
+
+  td.col-extra, th.col-extra{ color: var(--text-secondary); }
+  .reveal-cell{
+    display: inline-block;
+    opacity: 0;
+    transform: translateY(3px);
+    transition: opacity .35s ease, transform .35s ease;
+  }
+  .reveal-cell.shown{ opacity: 1; transform: translateY(0); }
+  .excluded-cell{ color: var(--muted); }
+
+  tr.summary-row td{ padding: 0; border-bottom: 1px solid var(--grid); }
+  .summary-inner{
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 12px 8px 16px;
+    flex-wrap: wrap;
+  }
+  .summary-group{
+    font-size: 11.5px;
+    font-weight: 700;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: .03em;
+    margin-right: 4px;
+    flex: none;
+  }
+  .stat-tile{
+    display: inline-flex;
+    align-items: baseline;
+    gap: 5px;
+    background: var(--focus-soft);
+    border-radius: 8px;
+    padding: 3px 9px;
+    font-size: 12.5px;
+    opacity: 0;
+    transform: translateY(4px) scale(.96);
+    transition: opacity .35s ease, transform .35s ease;
+  }
+  .stat-tile.shown{ opacity: 1; transform: translateY(0) scale(1); }
+  .stat-tile .tile-label{ color: var(--text-secondary); }
+  .stat-tile .tile-value{ font-weight: 700; color: var(--focus); font-variant-numeric: tabular-nums; }
+
+  .final-grid{
+    display: grid;
+    grid-template-columns: minmax(0,1.1fr) minmax(0,.9fr);
+    gap: 18px;
+    align-items: start;
+  }
+  @media (max-width: 760px){
+    .final-grid{ grid-template-columns: 1fr; }
+  }
+  .result-pane, .matrix-pane{
+    padding: 16px;
+    max-height: 0;
+    opacity: 0;
+    overflow: hidden;
+    transition: max-height .5s ease, opacity .5s ease, padding .5s ease;
+  }
+  .result-pane.shown, .matrix-pane.shown{ max-height: 400px; opacity: 1; }
+  .result-pane h3, .matrix-pane h3{
+    margin: 0 0 2px;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: .04em;
+    color: var(--muted);
+  }
+  .result-caption{ font-size: 12.5px; color: var(--text-secondary); margin-bottom: 10px; }
+  table.result{ width: 100%; border-collapse: collapse; font-size: 13.5px; }
+  table.result th, table.result td{
+    padding: 7px 10px;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    border-bottom: 1px solid var(--grid);
+  }
+  table.result th:first-child, table.result td:first-child,
+  table.result th:nth-child(2), table.result td:nth-child(2){ text-align: left; font-variant-numeric: normal; }
+  table.result thead th{ font-size: 11px; text-transform: uppercase; color: var(--muted); letter-spacing: .03em; }
+  table.result td:last-child{ font-weight: 700; color: var(--text-primary); }
+  .count-bar-wrap{ display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
+  .count-bar{ width: 44px; height: 6px; border-radius: 3px; background: color-mix(in srgb, var(--focus) 16%, var(--surface-1)); overflow: hidden; }
+  .count-bar-fill{ height: 100%; background: var(--focus); }
+
+  table.matrix{ width: 100%; border-collapse: collapse; font-size: 13.5px; }
+  table.matrix th, table.matrix td{
+    padding: 10px 12px;
+    text-align: center;
+    border: 1px solid var(--grid);
+    font-variant-numeric: tabular-nums;
+  }
+  table.matrix thead th{ font-size: 11px; text-transform: uppercase; color: var(--muted); letter-spacing: .03em; }
+  table.matrix th.row-label{ text-align: left; font-size: 12.5px; color: var(--text-secondary); text-transform: none; letter-spacing: 0; }
+  table.matrix td.cell-count{ font-weight: 700; font-size: 15px; }
+  table.matrix td.cell-zero{ color: var(--muted); font-weight: 400; }
+  table.matrix caption{ caption-side: top; text-align: left; font-size: 11px; color: var(--muted); padding-bottom: 8px; }
+
+  .bottom-grid{
+    display: grid;
+    grid-template-columns: minmax(0,1.3fr) minmax(0,1fr);
+    gap: 18px;
+    align-items: start;
+  }
+  .code-card{ padding: 14px 16px; }
+  .code-card .code-label{ font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin-bottom: 8px; }
+  pre.code-block{ margin: 0; font-size: 13px; line-height: 1.65; white-space: pre; overflow-x: auto; color: var(--text-secondary); }
+  .tok{ transition: color .3s ease, font-weight .3s ease; border-radius: 4px; }
+  .tok.active{ color: var(--focus); font-weight: 700; background: var(--focus-soft); padding: 0 2px; margin: 0 -2px; }
+
+  .narrative{ padding: 16px; font-size: 14px; line-height: 1.55; color: var(--text-secondary); }
+  .narrative code{ background: var(--focus-soft); color: var(--focus); padding: 1px 5px; border-radius: 4px; font-size: 12.5px; }
+  .narrative .prompt{ margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--grid); color: var(--muted); font-size: 13px; }
+
+  .controls{ display: flex; align-items: center; justify-content: center; gap: 14px; flex-wrap: wrap; padding-top: 4px; }
+  .btn{
+    appearance: none;
+    border: 1px solid var(--border);
+    background: var(--surface-1);
+    color: var(--text-primary);
+    font-size: 13.5px;
+    font-weight: 600;
+    padding: 9px 16px;
+    border-radius: 10px;
+    cursor: pointer;
+    transition: background .2s ease, transform .1s ease, opacity .2s ease;
+  }
+  .btn:hover{ background: color-mix(in srgb, var(--focus) 8%, var(--surface-1)); }
+  .btn:active{ transform: scale(.97); }
+  .btn:disabled{ opacity: .4; cursor: default; }
+  .btn:disabled:hover{ background: var(--surface-1); }
+  .btn.primary{ background: var(--focus); color: #fff; border-color: var(--focus); }
+  .btn.primary:hover{ opacity: .92; background: var(--focus); }
+  .btn.ghost{ background: transparent; }
+
+  .dots{ display: flex; gap: 7px; }
+  .dot{
+    width: 9px; height: 9px; border-radius: 50%;
+    background: var(--grid); border: none; padding: 0; cursor: pointer;
+    transition: background .25s ease, transform .25s ease;
+  }
+  .dot:hover{ transform: scale(1.2); }
+  .dot.active{ background: var(--focus); transform: scale(1.3); }
+  .dot.past{ background: color-mix(in srgb, var(--focus) 45%, var(--grid)); }
+
+  @media (prefers-reduced-motion: reduce){
+    tr.data-row, .reveal-cell, .stat-tile, .result-pane, .matrix-pane, table.data td, table.data th, .panel{ transition: none !important; }
+  }
+</style></head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Same Table, Twice</h1>
+    <p class="sub">Watching <code>trips JOIN zones AS pu ... JOIN zones AS do ... GROUP BY pu.Borough, do.Borough</code> happen, one step at a time.</p>
+    <p class="sample-note" id="sampleNote"></p>
+    <div class="legend" id="legend"><span class="legend-title">Pickup &rarr; Dropoff group</span></div>
+  </header>
+
+  <div class="stage-bar">
+    <span class="stage-title" id="stageTitle">Stage</span>
+    <span class="stage-count" id="stageCount">Step 1 of 8</span>
+  </div>
+
+  <div class="tables-grid">
+    <section class="panel table-pane" id="tripsPanel">
+      <div class="panel-label">trips</div>
+      <div class="table-scroll">
+        <table class="data" id="tripsTable">
+          <thead><tr id="tripsHead"></tr></thead>
+          <tbody id="tripsBody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="panel table-pane" id="zonesPanel">
+      <div class="panel-label">zones (one table, joined twice)</div>
+      <div class="table-scroll">
+        <table class="data" id="zonesTable">
+          <thead><tr id="zonesHead"></tr></thead>
+          <tbody id="zonesBody"></tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+
+  <div class="final-grid">
+    <section class="panel" id="resultPanel">
+      <div class="result-pane" id="resultPane">
+        <h3>Result</h3>
+        <div class="result-caption">What the query actually returns, ranked by <code>num_trips DESC</code></div>
+        <table class="result" id="resultTable">
+          <thead><tr><th>pickup_borough</th><th>dropoff_borough</th><th>num_trips</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+    <section class="panel" id="matrixPanel">
+      <div class="matrix-pane" id="matrixPane">
+        <h3>Pivoted</h3>
+        <table class="matrix" id="matrixTable">
+          <caption>Not what SQL returns &mdash; the same counts, read as a grid</caption>
+        </table>
+      </div>
+    </section>
+  </div>
+
+  <div class="bottom-grid">
+    <div class="panel code-card">
+      <div class="code-label">sql</div>
+      <pre class="code-block"><code>SELECT
+    pu.Borough AS pickup_borough,
+    do.Borough AS dropoff_borough,
+    <span class="tok" id="tok-count">COUNT(*) AS num_trips</span>
+FROM <span class="tok" id="tok-trips">trips AS t</span>
+<span class="tok" id="tok-puline">JOIN zones AS pu
+    ON t.PULocationID = pu.LocationID</span>
+<span class="tok" id="tok-doline">JOIN zones AS do
+    ON t.DOLocationID = do.LocationID</span>
+<span class="tok" id="tok-groupby">GROUP BY
+    pu.Borough,
+    do.Borough</span>
+<span class="tok" id="tok-orderby">ORDER BY num_trips DESC</span></code></pre>
+    </div>
+    <div class="panel narrative" id="narrative"></div>
+  </div>
+
+  <div class="controls">
+    <button class="btn ghost" id="prevBtn">&larr; Prev</button>
+    <div class="dots" id="dots"></div>
+    <button class="btn primary" id="nextBtn">Next &rarr;</button>
+    <button class="btn" id="replayBtn">Replay</button>
+  </div>
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  /* ---------------- CONFIG ---------------- */
+
+  var TRIP_COLS = [
+    { key: "trip_id",      label: "Trip" },
+    { key: "PULocationID", label: "PU Location", cls: "col-pu num", num: true },
+    { key: "DOLocationID", label: "DO Location", cls: "col-do num", num: true },
+    { key: "trip_miles",   label: "Miles", cls: "num", num: true, fmt: "miles" }
+  ];
+
+  var ZONE_COLS = [
+    { key: "LocationID", label: "Location ID", cls: "col-key num", num: true },
+    { key: "Borough",    label: "Borough" },
+    { key: "Zone",       label: "Zone" }
+  ];
+
+  // Same trips as the earlier JOIN demos, now with a dropoff location too.
+  var TRIPS = [
+    { trip_id: "T1", PULocationID: 230, DOLocationID: 138, trip_miles: 2.1 },
+    { trip_id: "T2", PULocationID: 4,   DOLocationID: 79,  trip_miles: 0.8 },
+    { trip_id: "T3", PULocationID: 999, DOLocationID: 230, trip_miles: 5.4 }, // pickup has no match
+    { trip_id: "T4", PULocationID: 138, DOLocationID: 230, trip_miles: 9.6 },
+    { trip_id: "T5", PULocationID: 79,  DOLocationID: 888, trip_miles: 1.3 }, // dropoff has no match
+    { trip_id: "T6", PULocationID: 230, DOLocationID: 161, trip_miles: 3.0 },
+    { trip_id: "T7", PULocationID: 161, DOLocationID: 138, trip_miles: 4.2 },
+    { trip_id: "T8", PULocationID: 4,   DOLocationID: 230, trip_miles: 1.1 }
+  ];
+
+  var ZONES = [
+    { LocationID: 4,   Borough: "Manhattan", Zone: "Alphabet City" },
+    { LocationID: 79,  Borough: "Manhattan", Zone: "East Village" },
+    { LocationID: 138, Borough: "Queens",    Zone: "LaGuardia Airport" },
+    { LocationID: 161, Borough: "Manhattan", Zone: "Midtown Center" },
+    { LocationID: 230, Borough: "Manhattan", Zone: "Times Sq/Theatre District" },
+    { LocationID: 7,   Borough: "Queens",    Zone: "Astoria" }
+  ];
+
+  var BOROUGHS = ["Manhattan", "Queens"];
+  var GROUP_ORDER = ["Manhattan→Manhattan", "Manhattan→Queens", "Queens→Manhattan"];
+  var GROUP_COLORS = { "Manhattan→Manhattan": "var(--match-1)", "Manhattan→Queens": "var(--match-2)", "Queens→Manhattan": "var(--match-3)" };
+
+  var STAGES = [
+    { token: "trips", title: "One table, two roles",
+      narrative: "Every trip has two locations: <code>PULocationID</code> (pickup) and <code>DOLocationID</code> (dropoff). The query joins <code>zones</code> twice &mdash; aliased <code>pu</code> and <code>do</code> &mdash; but it's the same physical table both times.",
+      prompt: "No copy needed: SQL lets you reference a table more than once in a query, as long as each reference gets its own alias." },
+    { token: "puline", title: "Look up the pickup zone",
+      narrative: "<code>ON t.PULocationID = pu.LocationID</code> looks up each trip's pickup zone, attaching <code>pickup_borough</code>. <code>PULocationID</code> 999 has no match &mdash; marked for now, not dropped yet." },
+    { token: "doline", title: "Look up the dropoff zone",
+      narrative: "<code>ON t.DOLocationID = do.LocationID</code> runs the exact same lookup again, this time against <code>DOLocationID</code>, attaching <code>dropoff_borough</code>. Same table, second pass. <code>DOLocationID</code> 888 has no match either." },
+    { tokens: ["puline", "doline"], title: "Either side missing &rarr; dropped",
+      narrative: "A plain <code>JOIN</code> is an INNER JOIN: both lookups have to succeed. T3's pickup never matched and T5's dropoff never matched &mdash; either miss is enough to drop the row.",
+      prompt: "Two INNER JOINs in a row can be stricter than either alone — a row needs a clean pickup AND a clean dropoff to survive." },
+    { token: "groupby", title: "Split &mdash; group by pickup and dropoff",
+      narrative: "<code>GROUP BY pu.Borough, do.Borough</code> clusters the remaining rows by the <em>pair</em> of boroughs, not just one column. Manhattan&rarr;Manhattan trips cluster separately from Manhattan&rarr;Queens trips, and so on." },
+    { token: "count", title: "Apply &mdash; count",
+      narrative: "<code>COUNT(*) AS num_trips</code> counts the rows in each pickup&ndash;dropoff pair." },
+    { token: "orderby", title: "Combine &mdash; order by num_trips",
+      narrative: "<code>ORDER BY num_trips DESC</code> ranks the pairs. This is the query's actual output: one row per (pickup, dropoff) pair, busiest first." },
+    { token: "orderby", title: "See it as a grid",
+      narrative: "The same numbers, pivoted into a pickup &times; dropoff grid &mdash; not what SQL hands back directly, but a natural way to read an origin-destination query like this one.",
+      prompt: "Try it yourself: if the second JOIN were a LEFT JOIN instead, what would happen to the row with dropoff 888?" }
+  ];
+
+  /* ---------------- END CONFIG ---------------- */
+
+  var reduceMotion = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  var zonesByLoc = {};
+  ZONES.forEach(function(z){ zonesByLoc[z.LocationID] = z; });
+
+  function puZone(row){ return zonesByLoc[row.PULocationID]; }
+  function doZone(row){ return zonesByLoc[row.DOLocationID]; }
+  function isDropped(row){ return !puZone(row) || !doZone(row); }
+  function groupKey(row){ return puZone(row).Borough + "→" + doZone(row).Borough; }
+
+  var tripsPanel = document.getElementById("tripsPanel");
+  var zonesPanel = document.getElementById("zonesPanel");
+  var tripsTable = document.getElementById("tripsTable");
+  var tripsHead = document.getElementById("tripsHead");
+  var tripsBody = document.getElementById("tripsBody");
+  var zonesTable = document.getElementById("zonesTable");
+  var zonesHead = document.getElementById("zonesHead");
+  var zonesBody = document.getElementById("zonesBody");
+  var resultPane = document.getElementById("resultPane");
+  var resultBody = resultPane.querySelector("table.result tbody");
+  var matrixPane = document.getElementById("matrixPane");
+  var matrixTable = document.getElementById("matrixTable");
+  var narrativeEl = document.getElementById("narrative");
+  var stageTitleEl = document.getElementById("stageTitle");
+  var stageCountEl = document.getElementById("stageCount");
+  var dotsEl = document.getElementById("dots");
+  var legendEl = document.getElementById("legend");
+  var sampleNoteEl = document.getElementById("sampleNote");
+  var prevBtn = document.getElementById("prevBtn");
+  var nextBtn = document.getElementById("nextBtn");
+  var replayBtn = document.getElementById("replayBtn");
+
+  sampleNoteEl.textContent = TRIPS.length + " synthetic HVFHV-style trips, now with a dropoff location too, and the same " + ZONES.length + "-row zones lookup used in the earlier JOIN demos.";
+
+  function fmtMiles(v){ return v.toFixed(1); }
+  function cellContent(col, row){
+    var v = row[col.key];
+    if (col.fmt === "miles") return fmtMiles(v);
+    return String(v);
+  }
+
+  function buildHead(headRow, cols){
+    cols.forEach(function(col){
+      var th = document.createElement("th");
+      th.textContent = col.label;
+      th.className = col.cls || "";
+      headRow.appendChild(th);
+    });
+  }
+  buildHead(tripsHead, TRIP_COLS);
+  buildHead(zonesHead, ZONE_COLS);
+
+  TRIPS.forEach(function(row, idx){
+    var tr = document.createElement("tr");
+    tr.className = "data-row";
+    tr.dataset.idx = String(idx);
+    TRIP_COLS.forEach(function(col){
+      var td = document.createElement("td");
+      td.className = col.cls || "";
+      td.textContent = cellContent(col, row);
+      tr.appendChild(td);
+    });
+    tripsBody.appendChild(tr);
+  });
+
+  ZONES.forEach(function(row){
+    var tr = document.createElement("tr");
+    tr.className = "data-row";
+    ZONE_COLS.forEach(function(col){
+      var td = document.createElement("td");
+      td.className = col.cls || "";
+      td.textContent = cellContent(col, row);
+      tr.appendChild(td);
+    });
+    zonesBody.appendChild(tr);
+  });
+
+  function buildLegend(){
+    legendEl.innerHTML = "";
+    var title = document.createElement("span");
+    title.className = "legend-title";
+    title.textContent = "Pickup → Dropoff group";
+    legendEl.appendChild(title);
+    GROUP_ORDER.forEach(function(k){
+      var item = document.createElement("span");
+      item.className = "legend-item";
+      var dot = document.createElement("span");
+      dot.className = "legend-dot";
+      dot.style.background = GROUP_COLORS[k];
+      item.appendChild(dot);
+      item.appendChild(document.createTextNode(k));
+      legendEl.appendChild(item);
+    });
+  }
+  buildLegend();
+
+  var dots = STAGES.map(function(_, i){
+    var d = document.createElement("button");
+    d.className = "dot";
+    d.type = "button";
+    d.setAttribute("aria-label", "Go to stage " + (i + 1));
+    d.addEventListener("click", function(){ setStage(i); });
+    dotsEl.appendChild(d);
+    return d;
+  });
+
+  /* ---- attach pickup/dropoff borough columns ---- */
+  var EXTRA_DEFS = {
+    pickup_borough:  { label: "Pickup Borough",  value: function(row){ var z = puZone(row); return z ? z.Borough : null; } },
+    dropoff_borough: { label: "Dropoff Borough", value: function(row){ var z = doZone(row); return z ? z.Borough : null; } }
+  };
+  var attachedCols = [];
+
+  function insertExtraCol(name){
+    if (attachedCols.indexOf(name) !== -1) return;
+    var def = EXTRA_DEFS[name];
+    var th = document.createElement("th");
+    th.textContent = def.label;
+    th.className = "col-extra";
+    tripsHead.appendChild(th);
+
+    tripsBody.querySelectorAll("tr.data-row").forEach(function(tr){
+      var row = TRIPS[+tr.dataset.idx];
+      var td = document.createElement("td");
+      td.className = "col-extra";
+      var span = document.createElement("span");
+      span.className = "reveal-cell";
+      var val = def.value(row);
+      if (val === null){
+        var ex = document.createElement("span");
+        ex.className = "excluded-cell";
+        ex.textContent = "—";
+        span.appendChild(ex);
+      } else {
+        span.textContent = val;
+      }
+      td.appendChild(span);
+      tr.appendChild(td);
+    });
+
+    void tripsBody.offsetHeight;
+    requestAnimationFrame(function(){
+      tripsBody.querySelectorAll("tr.data-row td:last-child .reveal-cell").forEach(function(el){
+        el.classList.add("shown");
+      });
+    });
+    attachedCols.push(name);
+  }
+
+  function removeAllExtraCols(){
+    tripsHead.querySelectorAll("th.col-extra").forEach(function(th){ th.remove(); });
+    tripsBody.querySelectorAll("td.col-extra").forEach(function(td){ td.remove(); });
+    attachedCols = [];
+  }
+
+  /* ---- drop / match painting ---- */
+  function paintDropped(show){
+    tripsBody.querySelectorAll("tr.data-row").forEach(function(r){
+      var row = TRIPS[+r.dataset.idx];
+      r.classList.toggle("is-dropped", show && isDropped(row));
+    });
+  }
+
+  function paintGroups(show){
+    tripsBody.querySelectorAll("tr.data-row").forEach(function(r){
+      var row = TRIPS[+r.dataset.idx];
+      if (!isDropped(row)){
+        r.classList.toggle("is-matched", show);
+        if (show) r.style.setProperty("--match-color", GROUP_COLORS[groupKey(row)]);
+      }
+    });
+  }
+
+  function rankFor(row){
+    if (isDropped(row)) return GROUP_ORDER.length;
+    return GROUP_ORDER.indexOf(groupKey(row));
+  }
+
+  function flipRows(grouped){
+    return new Promise(function(resolve){
+      var rows = Array.prototype.slice.call(tripsBody.querySelectorAll("tr.data-row"));
+      var firstRects = new Map();
+      rows.forEach(function(r){ firstRects.set(r, r.getBoundingClientRect()); });
+
+      var ordered = rows.slice().sort(function(a, b){
+        if (grouped){
+          var ra = rankFor(TRIPS[+a.dataset.idx]), rb = rankFor(TRIPS[+b.dataset.idx]);
+          if (ra !== rb) return ra - rb;
+        }
+        return (+a.dataset.idx) - (+b.dataset.idx);
+      });
+      ordered.forEach(function(r){ tripsBody.appendChild(r); });
+
+      if (reduceMotion){ resolve(); return; }
+
+      var animated = [];
+      ordered.forEach(function(r){
+        var last = r.getBoundingClientRect();
+        var first = firstRects.get(r);
+        var dy = first.top - last.top;
+        if (Math.abs(dy) > 0.5){
+          r.style.transition = "none";
+          r.style.transform = "translateY(" + dy + "px)";
+          animated.push(r);
+        }
+      });
+      void tripsBody.offsetHeight;
+      requestAnimationFrame(function(){
+        animated.forEach(function(r){
+          r.style.transition = "transform .55s cubic-bezier(.2,.7,.2,1)";
+          r.style.transform = "";
+        });
+        setTimeout(function(){
+          animated.forEach(function(r){ r.style.transition = ""; });
+          resolve();
+        }, 560);
+      });
+    });
+  }
+
+  /* ---- aggregation ---- */
+  function computeAgg(){
+    var acc = {};
+    GROUP_ORDER.forEach(function(k){ acc[k] = 0; });
+    TRIPS.forEach(function(row){
+      if (isDropped(row)) return;
+      acc[groupKey(row)] += 1;
+    });
+    return acc;
+  }
+  var AGG = computeAgg();
+  var MAX_COUNT = Math.max.apply(null, GROUP_ORDER.map(function(k){ return AGG[k]; }));
+
+  function insertSummaryRows(){
+    var lastRowByGroup = {};
+    tripsBody.querySelectorAll("tr.data-row").forEach(function(r){
+      var row = TRIPS[+r.dataset.idx];
+      if (!isDropped(row)) lastRowByGroup[groupKey(row)] = r;
+    });
+
+    GROUP_ORDER.forEach(function(k){
+      var anchor = lastRowByGroup[k];
+      if (!anchor) return;
+      var tr = document.createElement("tr");
+      tr.className = "summary-row";
+
+      var td = document.createElement("td");
+      td.colSpan = TRIP_COLS.length + attachedCols.length;
+
+      var inner = document.createElement("div");
+      inner.className = "summary-inner";
+
+      var label = document.createElement("span");
+      label.className = "summary-group";
+      label.style.color = GROUP_COLORS[k];
+      label.textContent = k;
+      inner.appendChild(label);
+
+      var countTile = document.createElement("span");
+      countTile.className = "stat-tile";
+      countTile.dataset.tile = "count";
+      countTile.innerHTML = '<span class="tile-label">trips</span><span class="tile-value" data-target="' + AGG[k] + '">0</span>';
+      inner.appendChild(countTile);
+
+      td.appendChild(inner);
+      tr.appendChild(td);
+      anchor.parentNode.insertBefore(tr, anchor.nextSibling);
+    });
+  }
+
+  function removeSummaryRows(){
+    return new Promise(function(resolve){
+      var rows = Array.prototype.slice.call(tripsBody.querySelectorAll("tr.summary-row"));
+      if (!rows.length){ resolve(); return; }
+      rows.forEach(function(r){ r.querySelectorAll(".stat-tile").forEach(function(t){ t.classList.remove("shown"); }); });
+      var wait = reduceMotion ? 0 : 260;
+      setTimeout(function(){
+        rows.forEach(function(r){ r.remove(); });
+        resolve();
+      }, wait);
+    });
+  }
+
+  function countUp(el, from, to, duration){
+    if (reduceMotion || duration <= 0){ el.textContent = String(to); return; }
+    var start = performance.now();
+    function step(now){
+      var t = Math.min(1, (now - start) / duration);
+      var eased = 1 - Math.pow(1 - t, 3);
+      var v = Math.round(from + (to - from) * eased);
+      el.textContent = String(v);
+      if (t < 1) requestAnimationFrame(step); else el.textContent = String(to);
+    }
+    requestAnimationFrame(step);
+  }
+
+  function revealCountTiles(show){
+    document.querySelectorAll('.stat-tile[data-tile="count"]').forEach(function(tile){
+      var valueEl = tile.querySelector(".tile-value");
+      var target = +valueEl.dataset.target;
+      var alreadyShown = tile.classList.contains("shown");
+      if (show){
+        if (alreadyShown) return;
+        tile.classList.add("shown");
+        countUp(valueEl, 0, target, 700);
+      } else if (alreadyShown){
+        tile.classList.remove("shown");
+        valueEl.textContent = "0";
+      }
+    });
+  }
+
+  /* ---- final result table (built once) ---- */
+  GROUP_ORDER.forEach(function(k){
+    var parts = k.split("→");
+    var count = AGG[k];
+    var pct = MAX_COUNT ? Math.round((count / MAX_COUNT) * 100) : 0;
+    var tr = document.createElement("tr");
+    tr.innerHTML = "<td>" + parts[0] + "</td><td>" + parts[1] + "</td>" +
+      "<td><span class=\"count-bar-wrap\"><span class=\"count-bar\"><span class=\"count-bar-fill\" style=\"width:" + pct + "%\"></span></span>" + count + "</span></td>";
+    resultBody.appendChild(tr);
+  });
+
+  /* ---- OD matrix (built once) ---- */
+  (function buildMatrix(){
+    var thead = document.createElement("thead");
+    var headRow = document.createElement("tr");
+    var corner = document.createElement("th");
+    corner.className = "row-label";
+    corner.textContent = "pickup \\ dropoff";
+    headRow.appendChild(corner);
+    BOROUGHS.forEach(function(b){
+      var th = document.createElement("th");
+      th.textContent = b;
+      headRow.appendChild(th);
+    });
+    thead.appendChild(headRow);
+    matrixTable.appendChild(thead);
+
+    var tbody = document.createElement("tbody");
+    BOROUGHS.forEach(function(pu){
+      var tr = document.createElement("tr");
+      var rowTh = document.createElement("th");
+      rowTh.className = "row-label";
+      rowTh.textContent = pu;
+      tr.appendChild(rowTh);
+      BOROUGHS.forEach(function(do_){
+        var key = pu + "→" + do_;
+        var count = AGG.hasOwnProperty(key) ? AGG[key] : 0;
+        var td = document.createElement("td");
+        td.className = count ? "cell-count" : "cell-count cell-zero";
+        if (count){
+          td.style.background = "color-mix(in srgb, " + GROUP_COLORS[key] + " " + Math.round((count / MAX_COUNT) * 22) + "%, var(--surface-1))";
+        }
+        td.textContent = count ? String(count) : "–";
+        tr.appendChild(td);
+      });
+      tbody.appendChild(tr);
+    });
+    matrixTable.appendChild(tbody);
+  })();
+
+  /* ---- stage state machine ---- */
+  var stage = -1;
+
+  function setStage(n){
+    n = Math.max(0, Math.min(STAGES.length - 1, n));
+    if (n === stage) return;
+    var wasGrouped = stage >= 4;
+    var willGroup = n >= 4;
+    stage = n;
+
+    tripsTable.classList.toggle("highlight-pu", stage === 1);
+    zonesTable.classList.toggle("highlight-pu", stage === 1);
+    tripsTable.classList.toggle("highlight-do", stage === 2);
+    zonesTable.classList.toggle("highlight-do", stage === 2);
+
+    var desiredCols = stage >= 2 ? ["pickup_borough", "dropoff_borough"] : (stage >= 1 ? ["pickup_borough"] : []);
+    if (JSON.stringify(desiredCols) !== JSON.stringify(attachedCols)){
+      removeAllExtraCols();
+      desiredCols.forEach(insertExtraCol);
+    }
+
+    paintDropped(stage >= 3);
+
+    zonesPanel.classList.toggle("dimmed", stage >= 4);
+
+    var chain = Promise.resolve();
+    if (!wasGrouped && willGroup){
+      chain = chain.then(function(){ return flipRows(true); }).then(function(){
+        paintGroups(true);
+        insertSummaryRows();
+        legendEl.classList.add("shown");
+      });
+    } else if (wasGrouped && !willGroup){
+      chain = chain.then(removeSummaryRows).then(function(){
+        paintGroups(false);
+        return flipRows(false);
+      }).then(function(){
+        legendEl.classList.remove("shown");
+      });
+    }
+
+    chain.then(function(){
+      revealCountTiles(stage >= 5);
+      resultPane.classList.toggle("shown", stage >= 6);
+      matrixPane.classList.toggle("shown", stage >= 7);
+
+      document.querySelectorAll(".tok").forEach(function(el){ el.classList.remove("active"); });
+      var s = STAGES[stage];
+      var ids = s.tokens || [s.token];
+      ids.forEach(function(id){
+        var tok = document.getElementById("tok-" + id);
+        if (tok) tok.classList.add("active");
+      });
+
+      stageTitleEl.innerHTML = s.title;
+      stageCountEl.textContent = "Step " + (stage + 1) + " of " + STAGES.length;
+      narrativeEl.innerHTML = "<p>" + s.narrative + "</p>" + (s.prompt ? '<p class="prompt">' + s.prompt + "</p>" : "");
+
+      dots.forEach(function(d, i){
+        d.classList.toggle("active", i === stage);
+        d.classList.toggle("past", i < stage);
+      });
+
+      prevBtn.disabled = stage === 0;
+      nextBtn.disabled = stage === STAGES.length - 1;
+      nextBtn.textContent = stage === STAGES.length - 1 ? "Done" : "Next →";
+    });
+  }
+
+  prevBtn.addEventListener("click", function(){ setStage(stage - 1); });
+  nextBtn.addEventListener("click", function(){ setStage(stage + 1); });
+  replayBtn.addEventListener("click", function(){ setStage(0); });
+
+  window.addEventListener("keydown", function(e){
+    if (e.key === "ArrowRight"){ setStage(stage + 1); }
+    else if (e.key === "ArrowLeft"){ setStage(stage - 1); }
+  });
+
+  setStage(0);
+})();
+</script>
+
+</body>
+</html>

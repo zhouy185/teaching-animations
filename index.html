@@ -132,6 +132,12 @@
         <div class="demo-desc">An <code>INNER JOIN</code> followed by <code>GROUP BY</code>, <code>COUNT</code>, <code>AVG</code>, and <code>ORDER BY</code>: the unmatched row is visibly excluded (not NULL-filled), matched rows regroup by borough, per-group stats count up, and a ranked result table appears.</div>
       </a>
     </li>
+    <li>
+      <a href="same-table-twice.html">
+        <div class="demo-title"><span class="demo-index">04</span>Same Table, Twice</div>
+        <div class="demo-desc">One <code>zones</code> lookup table, joined twice under two aliases to resolve a pickup zone and a dropoff zone &mdash; no copy needed. Grouping by the (pickup, dropoff) pair and counting builds an origin&ndash;destination result, pivoted into a small grid at the end.</div>
+      </a>
+    </li>
   </ul>
 </div>
 </body>
