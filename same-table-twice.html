@@ -633,6 +633,7 @@ FROM <span class="tok" id="tok-trips">trips AS t</span>
     th.className = "col-extra";
     tripsHead.appendChild(th);
 
+    var revealEls = [];
     tripsBody.querySelectorAll("tr.data-row").forEach(function(tr){
       var row = TRIPS[+tr.dataset.idx];
       var td = document.createElement("td");
@@ -650,13 +651,12 @@ FROM <span class="tok" id="tok-trips">trips AS t</span>
       }
       td.appendChild(span);
       tr.appendChild(td);
+      revealEls.push(span);
     });
 
     void tripsBody.offsetHeight;
     requestAnimationFrame(function(){
-      tripsBody.querySelectorAll("tr.data-row td:last-child .reveal-cell").forEach(function(el){
-        el.classList.add("shown");
-      });
+      revealEls.forEach(function(el){ el.classList.add("shown"); });
     });
     attachedCols.push(name);
   }
